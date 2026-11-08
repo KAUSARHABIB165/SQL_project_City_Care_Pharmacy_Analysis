@@ -1,0 +1,90 @@
+
+🔃--Loading data from staging to final tables
+INSERT INTO branches
+SELECT branch_id::INT, branch_name, city,opened_date :: DATE,area_type
+FROM stg_branch;
+
+INSERT INTO suppliers
+SELECT supplier_id ::INT , supplier_name , city , credit_days::INT 
+FROM stg_suppliers;
+
+INSERT INTO products
+SELECT product_id ::INT, TRIM(product_name),generic_name,category , dosage_form , 
+manufacturer, UPPER (TRIM(rx_required)) IN ('Y' , 'YES'),mrp::NUMERIC
+FROM stg_products;
+
+INSERT INTO purchases
+SELECT DISTINCT purcahse_id::int,supplier_id::int, branch_id::int, product_id::int,
+ UPPER(TRIM(batch_no)), quantity_packs::int,
+ CASE WHEN unit_cost::numeric > 0 THEN unit_cost::numeric END,
+ purchase_date::date,
+ CASE WHEN expiry_date::date >= purchase_date::date THEN expiry_date::date END,
+ COALESCE(expiry_date::date < purchase_date::date, FALSE)
+FROM stg_purchases;
+
+CREATE TABLE product_month_cost AS
+SELECT product_id,
+ DATE_TRUNC('month', purchase_date)::date AS month,
+ ROUND(SUM(quantity_packs * unit_cost) / SUM(quantity_packs), 2) AS avg_cost
+FROM purchases
+WHERE unit_cost IS NOT NULL
+GROUP BY product_id, DATE_TRUNC('month', purchase_date);
+ALTER TABLE product_month_cost ADD PRIMARY KEY (product_id, month);
+
+INSERT INTO stock_adjustments
+SELECT adjustment_id::int, branch_id::int, prduct_id::int, UPPER(TRIM(batch_no)),
+ ABS(quantity::int),
+ CASE WHEN LOWER(TRIM(reason)) IN ('expired', 'expiry') THEN 'Expired'
+ WHEN LOWER(TRIM(reason)) = 'damaged' THEN 'Damaged'
+ WHEN LOWER(TRIM(reason)) LIKE 'return%' THEN 'Returned to Supplier'
+ ELSE 'Count Correction' END,
+ adjustment_date::date, NULLIF(remarks, '')
+FROM stg_stock_adjustments;
+
+CREATE VIEW stg_sales_parsed AS
+SELECT DISTINCT
+ sale_id::int AS sale_id, invoicce_no,
+ CASE WHEN sale_datetime LIKE '%/%'
+ THEN TO_TIMESTAMP(sale_datetime, 'DD/MM/YYYY HH24:MI')::timestamp
+ ELSE sale_datetime::timestamp END AS sale_ts,
+ branch_id::int AS branch_id, product_id::int AS product_id, quantity::int AS quantity,
+ unit_price::numeric AS unit_price,
+ CASE WHEN discount_pct::numeric <= 1 THEN discount_pct::numeric * 100
+ ELSE discount_pct::numeric END AS discount_pct,
+ payment_method, custoemr_type, loyalty_card_id::int AS loyalty_card_id
+FROM stg_sales;
+
+CREATE TABLE product_month_price AS
+SELECT product_id, DATE_TRUNC('month', sale_ts)::date AS month,
+ PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY unit_price) AS price
+FROM stg_sales_parsed
+WHERE unit_price IS NOT NULL
+GROUP BY product_id, DATE_TRUNC('month', sale_ts);
+
+
+INSERT INTO sales
+SELECT s.sale_id, s.invoicce_no, s.sale_ts, s.branch_id, s.product_id, s.quantity,
+ COALESCE(s.unit_price, pp.price),
+ s.discount_pct,
+ CASE REPLACE(LOWER(s.payment_method), ' ', '')
+ WHEN 'cash' THEN 'Cash'
+ WHEN 'card' THEN 'Card'
+ WHEN 'jazzcash' THEN 'JazzCash'
+ WHEN 'easypaisa' THEN 'Easypaisa'
+ WHEN 'credit' THEN 'Credit'
+ ELSE 'Unknown' END,
+ s.custoemr_type, s.loyalty_card_id,
+ c.avg_cost,
+ s.unit_price IS NULL
+FROM stg_sales_parsed s
+JOIN product_month_price pp ON pp.product_id = s.product_id
+ AND pp.month = DATE_TRUNC('month', s.sale_ts)::date
+CROSS JOIN LATERAL (
+ SELECT avg_cost
+ FROM product_month_cost m
+ WHERE m.product_id = s.product_id
+ AND m.month <= DATE_TRUNC('month', s.sale_ts)::date
+ ORDER BY m.month DESC
+ LIMIT 1
+) c;
+✅
