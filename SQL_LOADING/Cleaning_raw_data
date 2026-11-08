@@ -1,0 +1,64 @@
+📊--Check the raw data
+🔍 ## 1. How big is the data(Count the rows of each file)
+SELECT 'branches' AS Table_name , COUNT(*) AS Total_rows FROM stg_branch
+UNION ALL SELECT 'products' , COUNT(*) FROM stg_products
+UNION ALL SELECT 'purchases', COUNT(*) FROm stg_purchases
+UNION ALL SELECT 'sales',COUNT(*) FROM stg_sales
+UNION ALL SELECT 'stock_adjustments', COUNT(*) FROM stg_stock_adjustments
+UNION ALL SELECT 'suppliers' , COUNT(*) FROM stg_suppliers;
+
+--What period does it cover
+SELECT MIN(purchase_date) AS first_purchase , MAX (purchase_date) AS last_purchase
+FROM stg_purchases;
+
+--Find Duplicates, missing values and impossible values
+--Duplicates in sales and purchase column
+
+SELECT 'sales' AS table_name , COUNT (*) AS total_rows,
+(SELECT COUNT(*)FROM (SELECT DISTINCT * FROM stg_sales)d) AS distinct_rows
+FROM stg_sales
+UNION ALL
+SELECT 'purchases', COUNT(*), (SELECT COUNT(*) FROM(SELECT DISTINCT * FROM stg_purchases)d)
+FROM stg_purchases;
+
+--Missing Values for sales
+
+SELECT COUNT(*) FILTER (WHERE unit_price IS NULl) AS sales_without_price,
+COUNT(*) FILTER (WHERE quantity:: INT <0) AS return_lines,
+COUNT(*) FILTER (WHERE loyalty_card_id IS NULL) AS lines_without_loyality_card
+FROM stg_sales;
+
+--Missing values for purchases
+
+SELECT COUNT(*) FILTER (WHERE unit_cost::NUMERIC = 0) AS zero_cost,
+COUNT(*) FILTER (WHERE supplier_id IS NULL) AS missing_supplier,
+COUNT(*) FILTER (WHERE expiry_date :: DATE < purchase_date::DATE ) AS expiry_before_purchase
+FROM stg_purchases;
+
+--FROM stock_adjustment
+SELECT COUNT(*) FILTER (WHERE quantity::INT <0) AS negative_quantitive,
+COUNT(*) AS adjustment
+FROM stg_stock_adjustments;
+
+🏁--Check payment_method (Where same things written in different ways)
+SELECT payment_method , COUNT(*) AS lines
+FROm stg_sales
+GROUP BY payment_method 
+ORDER BY LOWER(payment_method),payment_method;
+
+--Check rx_required
+SELECT rx_required, COUNT(*) AS products
+FROM stg_products
+GROUP BY rx_required
+ORDER BY rx_required;
+
+--Fom Sales (date and time/ discount_pct)
+
+SELECT branch_id,
+ COUNT(*) FILTER (WHERE sale_datetime LIKE '%/%') AS dd_mm_yyyy_dates,
+ COUNT(*) FILTER (WHERE discount_pct::numeric
+ BETWEEN 0.01 AND 0.99) AS discount_as_fraction,
+ COUNT(*) AS lines
+FROM stg_sales
+GROUP BY branch_id
+ORDER BY branch_id;
