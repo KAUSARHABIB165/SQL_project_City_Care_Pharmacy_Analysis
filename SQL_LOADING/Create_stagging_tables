@@ -1,0 +1,71 @@
+## Sales , Margin AND expiry analysis.
+## A 12-month review of a six-branch pharmacy chain.
+👾## Create the staging tables first 
+DROP TABLE IF EXISTS stg_branches;
+CREATE TABLE stg_branch(
+		branch_id INT,
+		branch_name TEXT,
+		city TEXT,
+		opened_date DATE,
+		area_type TEXT
+);
+
+DROP TABLE IF EXISTS stg_products;
+CREATE TABLE stg_products(
+		product_id INT,
+		product_name TEXT,
+		generic_name TEXT,
+		category TEXT,
+		dosage_form TEXT,
+		manufacturer TEXT,
+		rx_required TEXT,
+		mrp NUMERIC
+);
+
+DROP TABLE IF EXISTS stg_purchases;
+CREATE TABLE stg_purchases(
+		purcahse_id INT,
+		supplier_id INT,
+		branch_id INT,
+		product_id NUMERIC,
+		batch_no TEXT,
+		quantity_packs NUMERIC,
+		unit_cost NUMERIC(10,2),
+		purchase_date DATE,
+		expiry_date DATE
+);
+
+DROP TABLE IF EXISTS stg_sales;
+CREATE TABLE stg_sales(
+		sale_id INT,
+		invoicce_no TEXT,
+		sale_datetime TEXT,
+		branch_id INT,
+		product_id INT,
+		quantity INT,
+		unit_price NUMERIC,
+		discount_pct NUMERIC(10,2),
+		payment_method TEXT,
+		custoemr_type TEXT,
+		loyalty_card_id NUMERIC
+);
+
+DROP TABLE IF EXISTS stg_stock_adjustments;
+CREATE TABLE stg_stock_adjustments(
+		adjustment_id INT,
+		branch_id INT,
+		prduct_id INT,
+		batch_no TEXT,
+		quantity NUMERIC,
+		reason TEXT,
+		adjustment_date DATE,
+		remarks TEXT
+);
+
+DROP TABLE IF EXISTS stg_suppliers;
+CREATE TABLE stg_suppliers(
+		supplier_id INT,
+		supplier_name TEXT,
+		city TEXT,
+		credit_days INT
+);
