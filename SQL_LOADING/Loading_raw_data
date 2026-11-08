@@ -1,0 +1,28 @@
+🔃--Load data into staging tables.
+
+COPY stg_branch
+FROM 'C:\Users\Hp\Downloads\files\branches.csv'
+DELIMITER ',' CSV HEADER;
+
+COPY stg_products
+FROM 'C:\Users\Hp\Downloads\files\products.csv'
+DELIMITER ',' CSV HEADER;
+
+COPY stg_purchases
+FROM 'C:\Users\Hp\Downloads\files\purchases.csv'
+DELIMITER ',' CSV HEADER;
+
+COPY stg_sales
+FROM 'C:\Users\Hp\Downloads\files\sales.csv'
+DELIMITER ',' CSV HEADER;
+
+COPY stg_stock_adjustments
+FROM 'C:\Users\Hp\Downloads\files\stock_adjustments.csv'
+DELIMITER ',' CSV HEADER;
+
+COPY stg_suppliers
+FROM 'C:\Users\Hp\Downloads\files\suppliers.csv'
+DELIMITER ',' CSV HEADER;
+
+
+✅--DATA LOADED SUCCESSFULLY
