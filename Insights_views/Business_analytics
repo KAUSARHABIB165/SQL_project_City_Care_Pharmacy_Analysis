@@ -1,0 +1,223 @@
+--Business Analysis
+--Invoices, packs sold, revenue, gross profit, margin and average invoice value for 2025
+SELECT COUNT(DISTINCT invoice_no) FILTER (WHERE quantity > 0) AS invoices,
+ SUM(quantity) AS packs_sold_net,
+ ROUND(SUM(revenue)) AS revenue,
+ ROUND(SUM(gross_profit)) AS gross_profit,
+ ROUND(100 * SUM(gross_profit) / SUM(revenue), 1) AS gross_margin_pct,
+ ROUND(SUM(revenue) FILTER (WHERE quantity > 0)
+ / COUNT(DISTINCT invoice_no) FILTER (WHERE quantity > 0)) AS avg_invoice_value
+FROM sales_detail;
+
+--Revenue move through the year
+WITH m AS (
+ SELECT sale_month,
+ COUNT(DISTINCT invoice_no) FILTER (WHERE quantity > 0) AS invoices,
+ SUM(revenue) AS revenue,
+ SUM(gross_profit) AS gross_profit
+ FROM sales_detail
+ GROUP BY sale_month
+)
+SELECT sale_month, invoices,
+ ROUND(revenue) AS revenue,
+ ROUND(gross_profit) AS gross_profit,
+ ROUND(100.0 * gross_profit / revenue, 1) AS margin_pct,
+ ROUND(100.0 * (revenue - LAG(revenue) OVER (ORDER BY sale_month))
+ / LAG(revenue) OVER (ORDER BY sale_month), 1) AS mom_pct
+FROM m
+ORDER BY sale_month;
+
+-- Best performing Branch
+SELECT branch_name, city,
+ COUNT(DISTINCT invoice_no) FILTER (WHERE quantity > 0) AS invoices,
+ ROUND(SUM(revenue)) AS revenue,
+ ROUND(SUM(gross_profit)) AS gross_profit,
+ ROUND(100.0 * SUM(gross_profit) / SUM(revenue), 1) AS margin_pct,
+ ROUND(SUM(revenue) FILTER (WHERE quantity > 0)
+ / COUNT(DISTINCT invoice_no) FILTER (WHERE quantity > 0)) AS avg_invoice,
+ ROUND(100.0 * SUM(revenue) FILTER (WHERE rx_required) / SUM(revenue), 1) AS rx_share_pct
+FROM sales_detail
+GROUP BY branch_name, city
+ORDER BY revenue DESC;
+
+--WHich Category of the product makes more profit
+SELECT category,
+ SUM(quantity) AS packs,
+ ROUND(SUM(revenue)) AS revenue,
+ ROUND(100.0 * SUM(revenue) / SUM(SUM(revenue)) OVER (), 1) AS revenue_share_pct,
+ ROUND(SUM(gross_profit)) AS gross_profit,
+ ROUND(100.0 * SUM(gross_profit) / SUM(revenue), 1) AS margin_pct
+FROM sales_detail
+GROUP BY category
+ORDER BY gross_profit DESC;
+
+--Top 10 products by grossprofit
+SELECT product_name, category,
+ SUM(quantity) AS packs,
+ ROUND(SUM(revenue)) AS revenue,
+ ROUND(SUM(gross_profit)) AS gross_profit,
+ ROUND(100.0 * SUM(gross_profit) / SUM(revenue), 1) AS margin_pct
+FROM sales_detail
+GROUP BY product_name, category
+ORDER BY gross_profit DESC
+LIMIT 10;
+
+--product makes 80% of profit
+WITH p AS (
+ SELECT product_id, SUM(gross_profit) AS profit
+ FROM sales_detail
+ GROUP BY product_id
+),
+r AS (
+ SELECT profit,
+ SUM(profit) OVER (ORDER BY profit DESC) AS running,
+ SUM(profit) OVER () AS total,
+ COUNT(*) OVER () AS products
+ FROM p
+)
+SELECT MAX(products) AS products_sold,
+ COUNT(*) FILTER (WHERE running - profit < 0.8 * total) AS products_for_80pct_of_profit
+FROM r;
+
+-- Did july prices increase  cover highr cost.
+WITH pp AS (
+ SELECT product_id, category,
+ CASE WHEN sale_month < DATE '2025-07-01' THEN 'H1' ELSE 'H2' END AS half,
+ SUM(quantity * unit_price) / SUM(quantity) AS avg_price,
+ SUM(quantity * unit_cost) / SUM(quantity) AS avg_cost,
+ SUM(quantity) AS units
+ FROM sales_detail
+ WHERE quantity > 0
+ GROUP BY product_id, category, 3
+),
+pv AS (
+ SELECT product_id, category,
+ MAX(avg_price) FILTER (WHERE half = 'H1') AS p1,
+ MAX(avg_price) FILTER (WHERE half = 'H2') AS p2,
+ MAX(avg_cost) FILTER (WHERE half = 'H1') AS c1,
+ MAX(avg_cost) FILTER (WHERE half = 'H2') AS c2,
+ MAX(units) FILTER (WHERE half = 'H1') AS u1,
+ MAX(units) FILTER (WHERE half = 'H2') AS u2
+ FROM pp
+ GROUP BY product_id, category
+)
+SELECT category,
+ ROUND(AVG(100.0 * (p2 - p1) / p1), 1) AS price_change_pct,
+ ROUND(AVG(100.0 * (c2 - c1) / c1), 1) AS cost_change_pct,
+ ROUND(AVG(100.0 * (p2 - c2) / p2 - 100.0 * (p1 - c1) / p1), 1) AS margin_change_points,
+ ROUND(100.0 * (SUM(u2) - SUM(u1)) / SUM(u1), 1) AS units_change_pct
+FROM pv
+WHERE p1 IS NOT NULL AND p2 IS NOT NULL AND c1 IS NOT NULL AND c2 IS NOT NULL
+GROUP BY category
+ORDER BY margin_change_points;
+
+--When do customer shop ramzan changes the routine
+
+WITH inv AS (
+ SELECT DISTINCT invoice_no, sale_ts
+ FROM sales_detail
+ WHERE quantity > 0
+),
+t AS (
+ SELECT CASE WHEN sale_ts::date BETWEEN DATE '2025-03-01' AND DATE '2025-03-30'
+ THEN 'Ramadan' ELSE 'Rest of year' END AS period,
+ CASE WHEN EXTRACT(HOUR FROM sale_ts) BETWEEN 9 AND 11 THEN '1) Morning 9-12'
+ WHEN EXTRACT(HOUR FROM sale_ts) BETWEEN 12 AND 16 THEN '2) Afternoon 12-17'
+ WHEN EXTRACT(HOUR FROM sale_ts) BETWEEN 17 AND 20 THEN '3) Evening 17-21'
+ ELSE '4) Night 21-02' END AS time_band
+ FROM inv
+)
+SELECT period, time_band,
+ COUNT(*) AS invoices,
+ ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (PARTITION BY period), 1) AS share_pct
+FROM t
+GROUP BY period, time_band
+ORDER BY period DESC, time_band;
+
+--How supplier charge more for the same prodiuct
+WITH sp AS (
+ SELECT p.supplier_id, p.product_id,
+ SUM(p.quantity_packs * p.unit_cost) / SUM(p.quantity_packs) AS avg_cost,
+ SUM(p.quantity_packs) AS packs
+ FROM purchases p
+ WHERE p.unit_cost IS NOT NULL AND p.supplier_id IS NOT NULL
+ GROUP BY p.supplier_id, p.product_id
+),
+best AS (
+ SELECT *, MIN(avg_cost) OVER (PARTITION BY product_id) AS best_cost
+ FROM sp
+)
+SELECT s.supplier_name,
+ COUNT(*) AS products,
+ ROUND(SUM(b.packs * b.avg_cost)) AS spend,
+ ROUND(SUM(b.packs * (b.avg_cost - b.best_cost))) AS extra_vs_cheapest,
+ ROUND(100.0 * SUM(b.packs * (b.avg_cost - b.best_cost))
+ / SUM(b.packs * b.avg_cost), 1) AS extra_pct
+FROM best b
+JOIN suppliers s ON s.supplier_id = b.supplier_id
+GROUP BY s.supplier_name
+ORDER BY extra_vs_cheapest DESC;
+
+
+--Do lrge order loose the expiry loss.
+
+WITH monthly AS (
+ SELECT branch_id, product_id,
+ SUM(quantity) FILTER (WHERE quantity > 0) / 12.0 AS packs_per_month
+ FROM sales
+ GROUP BY branch_id, product_id
+),
+cover AS (
+ SELECT p.product_id, AVG(p.quantity_packs / m.packs_per_month) AS months_per_order
+ FROM purchases p
+ JOIN monthly m ON m.branch_id = p.branch_id AND m.product_id = p.product_id
+ WHERE p.purchase_date >= DATE '2025-01-01'
+ GROUP BY p.product_id
+),
+lost AS (
+ SELECT a.product_id, SUM(a.quantity * p.unit_cost) AS expired_cost
+ FROM stock_adjustments a
+ JOIN purchases p ON p.branch_id = a.branch_id AND p.product_id = a.product_id
+ AND p.batch_no = a.batch_no
+ WHERE a.reason = 'Expired' AND p.unit_cost IS NOT NULL
+ GROUP BY a.product_id
+)
+SELECT pr.product_name, pr.category,
+ ROUND(c.months_per_order, 1) AS months_of_sales_per_order,
+ ROUND(COALESCE(l.expired_cost, 0)) AS expired_cost
+FROM cover c
+JOIN products pr ON pr.product_id = c.product_id
+LEFT JOIN lost l ON l.product_id = c.product_id
+ORDER BY expired_cost DESC
+LIMIT 10;
+WITH monthly AS (
+ SELECT branch_id, product_id,
+ SUM(quantity) FILTER (WHERE quantity > 0) / 12.0 AS packs_per_month
+ FROM sales
+ GROUP BY branch_id, product_id
+),
+cover AS (
+ SELECT p.product_id, AVG(p.quantity_packs / m.packs_per_month) AS months_per_order
+ FROM purchases p
+ JOIN monthly m ON m.branch_id = p.branch_id AND m.product_id = p.product_id
+ WHERE p.purchase_date >= DATE '2025-01-01'
+ GROUP BY p.product_id
+),
+lost AS (
+ SELECT a.product_id, SUM(a.quantity * p.unit_cost) AS expired_cost
+ FROM stock_adjustments a
+ JOIN purchases p ON p.branch_id = a.branch_id AND p.product_id = a.product_id
+ AND p.batch_no = a.batch_no
+ WHERE a.reason = 'Expired' AND p.unit_cost IS NOT NULL
+ GROUP BY a.product_id
+)
+SELECT CASE WHEN c.months_per_order > 3.5 THEN 'Orders cover more than 3.5 months'
+ ELSE 'Orders cover 3.5 months or less' END AS order_size_group,
+ COUNT(*) AS products,
+ ROUND(SUM(COALESCE(l.expired_cost, 0))) AS expired_cost,
+ ROUND(100.0 * SUM(COALESCE(l.expired_cost, 0))
+ / SUM(SUM(COALESCE(l.expired_cost, 0))) OVER (), 1) AS pct_of_loss
+FROM cover c
+LEFT JOIN lost l ON l.product_id = c.product_id
+GROUP BY 1
+ORDER BY expired_cost DESC;
