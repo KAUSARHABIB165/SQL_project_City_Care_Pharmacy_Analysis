@@ -1,0 +1,69 @@
+💯--Clean the data --CREATE THE FINAL TABLES
+💹--Design the clean tables with types keys and rules.
+DROP TABLE IF EXISTS branches;
+CREATE TABLE branches(
+	branch_id INT PRIMARY KEY,
+	branch_name TEXT NOT NULL,
+	city TEXT NOT NULL,
+	opened_date DATE,
+	area_type TEXT
+);
+DROP TABLE IF EXISTS suppliers;
+CREATE TABLE suppliers(
+	supplier_id INT PRIMARY KEY,
+	supplier_name TEXT NOT NULL,
+	city TEXT,
+	credit_days INT
+);
+DROP TABLE IF EXISTS products;
+CREATE TABLE products(
+	product_id INT PRIMARY KEY,
+ 	product_name TEXT NOT NULL,
+ 	generic_name TEXT,
+ 	category TEXT NOT NULL,
+ 	dosage_form TEXT,
+ 	manufacturer TEXT,
+ 	rx_required BOOLEAN NOT NULL,
+ 	mrp NUMERIC(10,2) NOT NULL CHECK (mrp > 0)
+);
+DROP TABLE IF EXISTS purchases;
+CREATE TABLE purchases (	
+	purchase_id INT PRIMARY KEY,
+	supplier_id INT REFERENCES suppliers(supplier_id),
+	branch_id INT NOT NULL REFERENCES branches(branch_id),
+	product_id INT NOT NULL REFERENCES products(product_id),
+	batch_no TEXT NOT NULL,
+	quantity_packs INT NOT NULL CHECK (quantity_packs > 0),
+ 	unit_cost NUMERIC(10,2),
+ 	purchase_date DATE NOT NULL,
+ 	expiry_date DATE,
+ 	expiry_date_suspect BOOLEAN NOT NULL DEFAULT FALSE
+);
+DROP TABLE IF EXISTS sales;
+CREATE TABLE sales (
+	sale_id INT PRIMARY KEY,
+ 	invoice_no TEXT NOT NULL,
+ 	sale_ts TIMESTAMP NOT NULL,
+ 	branch_id INT NOT NULL REFERENCES branches(branch_id),
+ 	product_id INT NOT NULL REFERENCES products(product_id),
+ 	quantity INT NOT NULL CHECK (quantity <> 0), -- negative = customer return
+ 	unit_price NUMERIC(10,2) NOT NULL CHECK (unit_price > 0),
+ 	discount_pct NUMERIC(5,2) NOT NULL CHECK (discount_pct BETWEEN 0 AND 100),
+ 	payment_method TEXT NOT NULL,
+ 	customer_type TEXT NOT NULL,
+ 	loyalty_card_id INT,
+ 	unit_cost NUMERIC(10,2) NOT NULL,
+ 	price_was_filled BOOLEAN NOT NULL DEFAULT FALSE
+);
+DROP TABLE IF EXISTS stock_adjustments;
+CREATE TABLE stock_adjustments (
+ 	adjustment_id INT PRIMARY KEY,
+ 	branch_id INT NOT NULL REFERENCES branches(branch_id),
+ 	product_id INT NOT NULL REFERENCES products(product_id),
+ 	batch_no TEXT NOT NULL,
+ 	quantity INT NOT NULL CHECK (quantity > 0),
+ 	reason TEXT NOT NULL,
+ 	adjustment_date DATE NOT NULL,
+ 	remarks TEXT
+);
+
