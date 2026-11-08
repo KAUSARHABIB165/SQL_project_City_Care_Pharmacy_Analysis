@@ -1,0 +1,40 @@
+--Data will be inserted after cleaning 
+SELECT 'sales' AS table_name,
+ (SELECT COUNT(*) FROM stg_sales) AS raw_rows,
+ (SELECT COUNT(*) FROM sales) AS clean_rows
+UNION ALL SELECT 'purchases', (SELECT COUNT(*) FROM stg_purchases),
+ (SELECT COUNT(*) FROM purchases)
+UNION ALL SELECT 'stock_adjustments', (SELECT COUNT(*) FROM stg_stock_adjustments),
+ (SELECT COUNT(*) FROM stock_adjustments);
+
+ 
+SELECT COUNT(*) FILTER (WHERE price_was_filled) AS prices_filled,
+ COUNT(*) FILTER (WHERE quantity < 0) AS return_lines,
+ MIN(sale_ts)::date AS first_sale,
+ MAX(sale_ts)::date AS last_sale
+FROM sales;
+
+--Creating Views and indexes
+CREATE INDEX idx_sales_ts ON sales (sale_ts);
+CREATE INDEX idx_sales_product ON sales (product_id);
+CREATE INDEX idx_sales_branch ON sales (branch_id);
+CREATE INDEX idx_purch_product ON purchases (product_id);
+ANALYZE;
+
+
+CREATE VIEW sales_detail AS
+SELECT s.sale_id, s.invoice_no, s.sale_ts,
+ s.sale_ts::date AS sale_date,
+ DATE_TRUNC('month', s.sale_ts)::date AS sale_month,
+ b.branch_id, b.branch_name, b.city,
+ p.product_id, p.product_name, p.category, p.rx_required,
+ s.quantity, s.unit_price, s.discount_pct, s.unit_cost,
+ s.payment_method, s.customer_type, s.loyalty_card_id,
+ ROUND(s.quantity * s.unit_price * (1 - s.discount_pct / 100.0), 2) AS revenue,
+ ROUND(s.quantity * (s.unit_price * (1 - s.discount_pct / 100.0) - s.unit_cost), 2)
+ AS gross_profit
+FROM sales s
+JOIN branches b ON b.branch_id = s.branch_id
+JOIN products p ON p.product_id = s.product_id;
+
+--Know we Have two cleaned views
